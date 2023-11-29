@@ -2,6 +2,7 @@
 #include "parser.h"
 #include "logger.h"
 #include <cstdlib>
+#include <SFML/Window.hpp>
 
 // Main function
 int main (int argc, char** argv) {
