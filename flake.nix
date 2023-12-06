@@ -12,12 +12,13 @@
         buildCmd = ''
           rm -rf bins
           mkdir -p bins
-          g++ -Wall -Wextra -g -o bins/${pname} src/*.cpp
+          g++ -Wall -Wextra -g -O3 -o bins/${pname} src/*.cpp
         '';
-        buildInputs = with pkgs; [ fltk libcxx ];
+        buildInputs = with pkgs; [ sfml libtorch-bin libcxx ];
         nativeBuildInputs = with pkgs; [ gcc ];
       in with pkgs; {
         devShell = mkShell {
+          packages = [ clang-tools ];
           inherit buildInputs nativeBuildInputs;
           shellHook = ''
             alias build="${buildCmd}"
@@ -36,7 +37,6 @@
           version = "0.0.1";
           src = ./.;
           inherit buildInputs nativeBuildInputs;
-          packages = [ clang-tools ];
           buildPhase = "${buildCmd}";
           installPhase = ''
             mkdir -p $out/bin
