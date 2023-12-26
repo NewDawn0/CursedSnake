@@ -1,5 +1,5 @@
 // @AUTHORS: NewDawn0
-// @DATE: 2023-11-24
+// @DATE: 2023-12-25
 // @FILE: util/parser.h
 // @TYPE: Header only
 // @DESC: Argument parser
@@ -9,106 +9,200 @@
 #define PARSER_H
 
 // Includes
-#include <memory>
-#include <optional>
-#include <stdexcept>
-#include <type_traits>
+#include <exception>
+#include <iostream>
+#include <sstream>
+#include <string>
 #include <unordered_map>
-#include <any>
 #include <utility>
 #include <vector>
-#include <string>
-#include <iostream>
-#include <cassert>
+
 #include "../types/option.h"
+#include "../types/result.h"
+#include "parser/arg-util.h"
 
 // Namespaces
 namespace util {
 
-// Parser config
-struct AppConfig {                                                // Parser configuration:
-    std::string app_name;                                         // Configures some global app options
-    std::string app_desc;                                         // Used in the help and version arguments
-    float app_vers = 0.0f;
-    bool use_default_fns = true;
-    bool ignore_invalid_options = false;
+// The arg parser itself
+template <typename T, typename E>
+class ParseResultArgParser {
+   protected:
+    types::Result<T, E> inner;
+
+   public:
+    // Constructors & destructors (Factory🏭 methods)
+    ParseResultArgParser(T& inner) noexcept : inner(types::Ok<T>(inner)) {}
+    ParseResultArgParser(E inner) noexcept : inner(types::Err<E>(inner)) {}
+    virtual ~ParseResultArgParser() noexcept = default;
+    // Get inner result
+    types::Result<T, E> as_result() const noexcept { return inner; }
 };
 
-// Cli argument
-struct ArgNoNames {                                               // A CLI argument without the argument aliases:
-    std::any default_val;                                         // Contains inforamtion about the argument like:
-    bool is_optional;                                             // If it is optional or whether it takes values
-    bool takes_value;                                             // and if it has a default value
-    bool has_default_val;
-    ArgNoNames(bool is_optional = true, bool takes_value = true)
-        noexcept : default_val(nullptr), is_optional(is_optional), takes_value(takes_value), has_default_val(false) {}
-    template<typename T>
-    ArgNoNames(T default_val, bool is_optional = true, bool takes_value = true)
-        noexcept : default_val(default_val), is_optional(is_optional), takes_value(takes_value), has_default_val(false) {}
-};
-struct Arg : public ArgNoNames {                                  // Argument with name aliases
-    std::vector<std::string> names;                               // Same as ArgNoNames with the addition
-    Arg(std::initializer_list<std::string> names,                 // of the name aliases wich is the vector of strings
-        bool is_optional = true, bool takes_value = true)
-        noexcept : ArgNoNames(is_optional, takes_value), names(names) {
-        // Some assert tickery as to asser a non static value
-        assert(("Names must have at least one argument", names.size() > 1));
+template <typename T, typename E>
+class ArgResultArgParser : public ParseResultArgParser<T, E> {
+   private:
+    types::Option<std::string> as_opt_str(
+        const types::Option<const char*>& in) {
+        types::Option<std::string> res;
+        if (in) res = std::string(in.unwrap());
+        return res;
     }
-    template<typename T>
-    Arg(std::initializer_list<std::string> names, T val,          // of the name aliases wich is the vector of strings
-        bool is_optional = true, bool takes_value = true)
-        noexcept : ArgNoNames(val, is_optional, takes_value), names(names) {
-        // Some assert tickery as to asser a non static value
-        assert(("Names must have at least one argument", names.size() > 1));
+
+   public:
+    // Constructors
+    ArgResultArgParser(T& inner) noexcept : ParseResultArgParser<T, E>(inner) {}
+    ArgResultArgParser(E inner) noexcept : ParseResultArgParser<T, E>(inner) {}
+    // Add flags
+    ArgResultArgParser<T, E>& flagStr(
+        const std::vector<std::string>& aliases, const std::string& desc,
+        const types::Option<std::string>& value = {}) noexcept {
+        if (this->inner) this->inner.unwrap().flagStr(aliases, desc, value);
+        return *this;
+    }
+    ArgResultArgParser<T, E>& flagBool(
+        const std::vector<std::string>& aliases, const std::string& desc,
+        const types::Option<bool>& value = {}) noexcept {
+        if (this->inner) this->inner.unwrap().flagBool(aliases, desc, value);
+        return *this;
+    }
+    ArgResultArgParser<T, E>& flagInt(
+        const std::vector<std::string>& aliases, const std::string& desc,
+        const types::Option<int>& value = {}) noexcept {
+        if (this->inner) this->inner.unwrap().flagInt(aliases, desc, value);
+        return *this;
+    }
+    ArgResultArgParser<T, E>& flagVec2(
+        const std::vector<std::string>& aliases, const std::string& desc,
+        const types::Option<const char*>& value = {}) noexcept {
+        if (this->inner)
+            this->inner.unwrap().flagVec2(aliases, desc, as_opt_str(value));
+        return *this;
     }
 };
 
-// The parser itself
+template <typename Error>
 class ArgParser {
-private:
-    AppConfig app_config;
-    std::vector<std::string> otherArgs;
-    std::unordered_map<std::string, std::string> arg_aliases;     // Key to primary key translation
-    std::unordered_map<std::string, ArgNoNames> arg_values;       // Primary key translation to Arg
-public:
-    // Parser Configuration
-    ArgParser& configure(const AppConfig& app_config) noexcept {  // Configures the parser using the AppConfig
-        this->app_config = app_config;                            // Takes an AppConfig or its initalizer list as the argument
-        return *this;
-    }
-    AppConfig& appInfo() noexcept {                               // Returns a reference to its inner app_config
-        return app_config;
+   private:
+    std::unordered_map<std::string, std::string> flag_aliases;
+    std::unordered_map<std::string, util::Flag> flag_values;
+    // Adds the flags to the map
+    inline void _reg(const std::vector<std::string>& aliases, util::Flag flag) {
+        flag_values[aliases[0]] = flag;
+        for (const std::string& alias : aliases) {
+            flag_aliases[alias] = aliases[0];
+        }
     }
 
-    // Argument Configuration
-    ArgParser& add(const Arg& arg) noexcept {                              // Add new arguments
-        for (const std::string& alias : arg.names) {
-            arg_aliases[alias] = arg.names[0];                    // For each name translate to primary
-        }
-        arg_values[arg.names[0]] = {arg.default_val, arg.is_optional, arg.takes_value};
-        return *this;
+   public:
+    // Add flags
+    ArgResultArgParser<ArgParser<Error>&, Error> flagStr(
+        const std::vector<std::string>& aliases, const std::string& desc,
+        const types::Option<std::string>& value = {}) noexcept {
+        _reg(aliases, {util::as_any<std::string>(value), util::FlagType::Str});
+        return ArgResultArgParser<ArgParser<Error>&, Error>(*this);
     }
-    template<typename T>
-    types::Option<T> get(const std::string name) const noexcept {
+    ArgResultArgParser<ArgParser<Error>&, Error> flagBool(
+        const std::vector<std::string>& aliases, const std::string& desc,
+        const types::Option<bool>& value = {}) noexcept {
+        _reg(aliases, {util::as_any<bool>(value), util::FlagType::Bool});
+        return ArgResultArgParser<ArgParser<Error>&, Error>(*this);
+    }
+    ArgResultArgParser<ArgParser<Error>&, Error> flagInt(
+        const std::vector<std::string>& aliases, const std::string& desc,
+        const types::Option<int>& value = {}) noexcept {
+        _reg(aliases, {util::as_any<int>(value), util::FlagType::Int});
+        return ArgResultArgParser<ArgParser<Error>&, Error>(*this);
+    }
+    ArgResultArgParser<ArgParser<Error>&, Error> flagVec2(
+        const std::vector<std::string>& aliases, const std::string& desc,
+        const types::Option<std::string>& value = {}) noexcept {
+        types::Option<util::vec2> val;
+        if (value) {
+            types::Result<util::vec2, Error> res =
+                util::as_vec2<Error>(value.unwrap(), 'x');
+            if (!res)
+                return ArgResultArgParser<ArgParser<Error>&, Error>(
+                    res.unwrap_err());
+            val = res.unwrap();
+        }
+        _reg(aliases, {util::as_any<util::vec2>(val), util::FlagType::Vec2});
+        return ArgResultArgParser<ArgParser<Error>&, Error>(*this);
+    }
+    ParseResultArgParser<ArgParser<Error>&, Error> parse(
+
+        const int argc, const char** argv) noexcept {
+        bool look_ahead = false;
+        types::Option<util::FlagParse> current_flag;
+        for (int i = 1; i < argc; i++) {
+            // Check for arg
+            if (!look_ahead) {
+                try {
+                    util::Flag flag = flag_values.at(flag_aliases.at(i[argv]));
+                    current_flag = util::FlagParse{i[argv], flag};
+                    if (flag.type == util::FlagType::Bool) {
+                        flag_values.at(flag_aliases.at(i[argv])).value =
+                            util::as_any<bool>(true);
+                    } else {
+                        look_ahead = true;
+                        if (i + 1 >= argc) {
+                            std::stringstream ss;
+                            ss << "Not enough arguments at `" << i[argv] << "`";
+                            return ParseResultArgParser<ArgParser<Error>&,
+                                                        Error>(
+                                ss.str().c_str());
+                        }
+                    }
+                } catch (std::exception& e) {
+                    std::stringstream ss;
+                    ss << "Invalid flag `" << i[argv] << "`";
+                    return ParseResultArgParser<ArgParser<Error>&, Error>(
+                        ss.str().c_str());
+                }
+                // Check for flag (⚠️ Warning minimal spaghetti🍝 code)
+            } else {
+                if (current_flag) {
+                    switch (current_flag.unwrap().flag.type) {
+                        case util::FlagType::Str:
+                            flag_values
+                                .at(flag_aliases.at(current_flag.unwrap().key))
+                                .value = util::as_any<const char*>(i[argv]);
+                        case util::FlagType::Int:
+                            flag_values
+                                .at(flag_aliases.at(current_flag.unwrap().key))
+                                .value = util::as_any<int>(std::stoi(i[argv]));
+                            break;
+                        case util::FlagType::Vec2: {
+                            auto res = util::as_vec2<Error>(i[argv], 'x');
+                            if (!res)
+                                return ParseResultArgParser<ArgParser<Error>&,
+                                                            Error>(
+                                    res.unwrap_err());
+                            flag_values
+                                .at(flag_aliases.at(current_flag.unwrap().key))
+                                .value = util::as_any<util::vec2>(res.unwrap());
+                        } break;
+                        default:
+                            break;
+                    }
+                }
+                look_ahead = false;
+            }
+        }
+        return ParseResultArgParser<ArgParser<Error>&, Error>(*this);
+    }
+    template <util::FlagType T>
+    types::Option<typename util::FlagTypeMap<T>::type> get(
+        const std::string& key) {
         try {
-            ArgNoNames arg_nn = arg_values.at(arg_aliases.at(name));
-            if (!arg_nn.has_default_val) return types::Option<T>::None();
-            return types::Option<T>::Some(std::any_cast<T>(arg_nn.default_val));
+            auto any_flag = flag_values.at(flag_aliases.at(key)).value;
+            return util::from_any<typename util::FlagTypeMap<T>::type>(
+                any_flag);
         } catch (...) {
-            // Yeet formatted error
-            assert(("Invalid argument `"+ name +"`", false));
+            return {};
         }
-    }
-    std::vector<std::string> getOther() const noexcept {
-        assert(("Other arguments set to ignore which disables this option", !app_config.ignore_invalid_options));
-        return otherArgs;
-    }
-
-    ArgParser& parse(int argc, char** argv) {
-        // TODO:
-        return *this;
     };
 };
 
-}       // !namespace util
+}  // namespace util
 #endif  // !PARSER_H
