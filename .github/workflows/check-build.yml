@@ -27,5 +27,5 @@ jobs:
   - name: Install Nix
     uses: cachix/install-nix-action@v24
 
-    - name: Build Code using Nix
-      run: nix build
+  - name: Build Code using Nix
+    run: nix build
