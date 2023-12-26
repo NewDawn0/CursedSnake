@@ -6,7 +6,8 @@ on:
   pull_request:
     branches: [ "main" ]
 
-jobs: Rebuild
+jobs: 
+  Rebuild:
   runs-on: ${{ 'ubuntu-latest' }}
   timeout-minutes: ${{ 360 }}
   permissions:
