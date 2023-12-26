@@ -1,0 +1,29 @@
+name: "Build Codebase"
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  build:
+    name: Build:
+      runs-on: ${{ 'ubuntu-latest' }} 
+      timeout-minutes: ${{ 360 }}
+      permissions:
+        actions: read
+        contents: read
+      strategy:
+        fail-fast: false
+        matrix:
+          language: ['c-cpp']
+      steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Install Nix
+        uses: cachix/install-nix-action@v24
+        with:
+          languages: ${{ matrix.language }}
+      - name: Build Code using Nix
+        run: nix build
