@@ -12,7 +12,7 @@
         buildCmd = ''
           rm -rf bins
           mkdir -p bins
-          g++ -Wall -Wextra -g -O3 -o bins/${pname} src/*.cpp
+          g++ -Wall -Wextra -Wpedantic -O3 -g -o bins/${pname} src/*.cpp
         '';
         buildInputs = with pkgs; [ sfml libtorch-bin libcxx ];
         nativeBuildInputs = with pkgs; [ gcc ];
