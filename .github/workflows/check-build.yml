@@ -6,27 +6,26 @@ on:
   pull_request:
     branches: [ "main" ]
 
-jobs:
-  rebuild:
-    name: Rebuild
+jobs: 
+  Rebuild:
     runs-on: ${{ 'ubuntu-latest' }}
     timeout-minutes: ${{ 360 }}
     permissions:
       actions: read
       contents: read
       # security-events: write
-
+  
     strategy:
       fail-fast: false
       matrix:
         language: [ 'c-cpp' ]
-    
+      
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
-
+  
     - name: Install Nix
       uses: cachix/install-nix-action@v24
-
+  
     - name: Build Code using Nix
       run: nix build
